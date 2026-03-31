@@ -1,0 +1,37 @@
+# Dependências — nunca commitar
+node_modules/
+*/node_modules/
+
+# Build — gerado automaticamente pelo Docker
+dist/
+*/dist/
+frontend/dist/
+
+# Ambiente — NUNCA commitar segredos
+.env
+*/.env
+.env.local
+.env.production
+.env.staging
+
+# Logs
+logs/
+*.log
+*/logs/
+
+# SSL / certificados
+*.pem
+*.key
+*.crt
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+
+# Coverage
+coverage/

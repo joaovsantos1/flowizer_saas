@@ -1,0 +1,107 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FinanceBot — Stack para Portainer
+#
+# Variáveis de ambiente: configure em
+# Portainer → Stacks → FinanceBot → Editor → Environment variables
+# NÃO commitar o .env no GitHub
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ─── Backend API ─────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: financebot-backend:latest
+    container_name: financebot-backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV:                   ${NODE_ENV:-production}
+      PORT:                       3000
+      APP_URL:                    ${APP_URL}
+
+      # JWT
+      JWT_SECRET:                 ${JWT_SECRET}
+      JWT_REFRESH_SECRET:         ${JWT_REFRESH_SECRET}
+      JWT_EXPIRES_IN:             ${JWT_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN:     ${JWT_REFRESH_EXPIRES_IN:-7d}
+
+      # Criptografia
+      ENCRYPTION_KEY:             ${ENCRYPTION_KEY}
+
+      # Banco — use o host/porta do PostgreSQL instalado pelo Orion
+      DB_HOST:                    ${DB_HOST}
+      DB_PORT:                    ${DB_PORT:-5432}
+      DB_NAME:                    ${DB_NAME}
+      DB_USER:                    ${DB_USER}
+      DB_PASSWORD:                ${DB_PASSWORD}
+      DB_SSL:                     ${DB_SSL:-false}
+
+      # Redis — provavelmente já rodando para o n8n
+      REDIS_URL:                  ${REDIS_URL}
+
+      # WhatsApp / Evolution API
+      WA_PROVIDER:                ${WA_PROVIDER:-evolution}
+      EVOLUTION_API_URL:          ${EVOLUTION_API_URL}
+      EVOLUTION_API_KEY:          ${EVOLUTION_API_KEY}
+      EVOLUTION_WEBHOOK_SECRET:   ${EVOLUTION_WEBHOOK_SECRET}
+
+      # Stripe
+      STRIPE_SECRET_KEY:          ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET:      ${STRIPE_WEBHOOK_SECRET}
+      STRIPE_PRICE_ID_MONTHLY:    ${STRIPE_PRICE_ID_MONTHLY}
+      STRIPE_TRIAL_DAYS:          ${STRIPE_TRIAL_DAYS:-7}
+
+      # IA
+      AI_PROVIDER:                ${AI_PROVIDER:-openai}
+      OPENAI_API_KEY:             ${OPENAI_API_KEY}
+      AI_MODEL:                   ${AI_MODEL:-gpt-4o-mini}
+
+      # n8n → Backend
+      N8N_INTERNAL_SECRET:        ${N8N_INTERNAL_SECRET}
+      N8N_ALLOWED_IPS:            ${N8N_ALLOWED_IPS:-172.0.0.0/8,127.0.0.1}
+
+      BACKUP_CRON:                ${BACKUP_CRON:-0 2 * * *}
+      LOG_LEVEL:                  ${LOG_LEVEL:-info}
+    volumes:
+      - backend_logs:/app/logs
+    networks:
+      - financebot-net
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/v1/health', r => r.statusCode === 200 ? process.exit(0) : process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+  # ─── Frontend ─────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${APP_URL}
+    image: financebot-frontend:latest
+    container_name: financebot-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    networks:
+      - financebot-net
+    depends_on:
+      - backend
+
+volumes:
+  backend_logs:
+    driver: local
+
+networks:
+  financebot-net:
+    driver: bridge
+    # Conectar à rede do n8n para comunicação interna
+    external: false

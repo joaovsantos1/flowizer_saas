@@ -1,0 +1,47 @@
+# Dependências
+node_modules/
+.npm/
+
+# Build
+dist/
+*.js.map
+
+# Ambiente — NUNCA commitar
+.env
+.env.local
+.env.production
+.env.staging
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Logs — podem conter dados sensíveis
+logs/
+*.log
+npm-debug.log*
+
+# SSL
+nginx/ssl/
+
+# Banco
+*.sqlite
+*.db
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Temporários
+tmp/
+temp/

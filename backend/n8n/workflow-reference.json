@@ -1,0 +1,246 @@
+{
+  "_meta": {
+    "description": "Workflow de referência n8n para WhatsApp AI SaaS",
+    "version": "1.0.0",
+    "notes": [
+      "Importar no n8n via Settings > Import Workflow",
+      "Configurar as credenciais antes de ativar",
+      "O backend deve estar acessível via rede interna da VPS"
+    ]
+  },
+
+  "workflow_nodes_description": {
+    "1_webhook_trigger": {
+      "type": "n8n-nodes-base.webhook",
+      "name": "Evolution API Webhook",
+      "config": {
+        "httpMethod": "POST",
+        "path": "whatsapp-messages",
+        "responseMode": "responseNode",
+        "notes": "URL deste webhook deve ser configurada na Evolution API como webhook destino"
+      }
+    },
+
+    "2_respond_immediately": {
+      "type": "n8n-nodes-base.respondToWebhook",
+      "name": "Responder 200 imediatamente",
+      "config": {
+        "responseCode": 200,
+        "responseBody": "{\"status\": \"ok\"}",
+        "notes": "Responder ANTES de processar para evitar timeout da Evolution API (< 5s)"
+      }
+    },
+
+    "3_extract_phone": {
+      "type": "n8n-nodes-base.set",
+      "name": "Extrair telefone e mensagem",
+      "config": {
+        "assignments": [
+          {
+            "name": "phone",
+            "value": "={{ $json.data.key.remoteJid.replace('@s.whatsapp.net', '').replace(/^(\\d{2})(\\d{2})(9?)(\\d{8})$/, '+$1$2$3$4') }}",
+            "notes": "Adaptar o formato de número conforme a Evolution API em uso"
+          },
+          {
+            "name": "messageBody",
+            "value": "={{ $json.data.message.conversation ?? $json.data.message.extendedTextMessage?.text ?? '' }}"
+          },
+          {
+            "name": "messageId",
+            "value": "={{ $json.data.key.id }}"
+          },
+          {
+            "name": "timestamp",
+            "value": "={{ $json.data.messageTimestamp }}"
+          }
+        ]
+      }
+    },
+
+    "4_check_access": {
+      "type": "n8n-nodes-base.httpRequest",
+      "name": "POST /internal/check-access",
+      "config": {
+        "method": "POST",
+        "url": "http://app:3000/api/v1/internal/check-access",
+        "headers": {
+          "Authorization": "Bearer {{ $env.N8N_BACKEND_SECRET }}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "phone": "={{ $('Extrair telefone e mensagem').item.json.phone }}"
+        },
+        "notes": [
+          "N8N_BACKEND_SECRET deve ser igual ao N8N_INTERNAL_SECRET do backend",
+          "Configurar como variável de ambiente no n8n"
+        ]
+      }
+    },
+
+    "5_check_access_decision": {
+      "type": "n8n-nodes-base.if",
+      "name": "Acesso permitido?",
+      "config": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.access }}",
+              "operation": "equal",
+              "value2": "allowed"
+            }
+          ]
+        }
+      }
+    },
+
+    "6a_send_blocked_message": {
+      "type": "n8n-nodes-base.httpRequest",
+      "name": "Enviar mensagem de bloqueio",
+      "config": {
+        "method": "POST",
+        "url": "={{ $env.EVOLUTION_API_URL }}/message/sendText/{{ $env.EVOLUTION_INSTANCE }}",
+        "headers": {
+          "apikey": "={{ $env.EVOLUTION_API_KEY }}"
+        },
+        "body": {
+          "number": "={{ $('Extrair telefone e mensagem').item.json.phone }}",
+          "text": "={{ $('POST /internal/check-access').item.json.message }}"
+        }
+      }
+    },
+
+    "6b_call_ai_agent": {
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "name": "Agente IA",
+      "config": {
+        "systemMessage": "Você é um assistente financeiro pessoal via WhatsApp em português brasileiro.\n\nO usuário enviou a seguinte mensagem. Interprete e decida qual ação tomar:\n- Registrar gasto: chame a tool 'salvar_gasto'\n- Registrar receita: chame a tool 'salvar_receita'\n- Criar lembrete: chame a tool 'criar_lembrete'\n- Consultar saldo: chame a tool 'consultar_saldo'\n- Listar transações: chame a tool 'listar_transacoes'\n- Se não entender: responda diretamente pedindo esclarecimento\n\nCONTEXTO DO USUÁRIO:\n- userId: {{ $('POST /internal/check-access').item.json.userId }}\n- Nome: {{ $('POST /internal/check-access').item.json.name }}\n\nREGRAS:\n- Responda SEMPRE em português\n- Valores monetários em R$ (reais)\n- Datas no formato DD/MM/YYYY para o usuário, ISO para as tools\n- Seja conciso nas respostas (WhatsApp)\n- Nunca invente dados que o usuário não forneceu",
+        "memory": {
+          "type": "redis",
+          "sessionKey": "={{ 'wa_' + $('POST /internal/check-access').item.json.userId }}",
+          "ttl": 3600,
+          "notes": "Memória de contexto por usuário, expira em 1h de inatividade"
+        }
+      }
+    },
+
+    "tools_description": {
+      "salvar_gasto": {
+        "type": "n8n-nodes-base.httpRequest",
+        "description": "Salva um gasto do usuário. Use quando o usuário mencionar que gastou, pagou ou comprou algo.",
+        "parameters": {
+          "userId": "string (UUID do usuário)",
+          "amount": "number (valor em reais, ex: 50.00)",
+          "category": "string (categoria: Alimentação, Transporte, Lazer, Saúde, Moradia, Educação, Outros)",
+          "description": "string opcional (descrição do gasto)",
+          "date": "string opcional (YYYY-MM-DD, padrão: hoje)"
+        },
+        "config": {
+          "method": "POST",
+          "url": "http://app:3000/api/v1/internal/transactions",
+          "headers": {
+            "Authorization": "Bearer {{ $env.N8N_BACKEND_SECRET }}"
+          },
+          "body": {
+            "userId": "={{ $fromAI('userId') }}",
+            "type": "expense",
+            "amount": "={{ $fromAI('amount') }}",
+            "category": "={{ $fromAI('category') }}",
+            "description": "={{ $fromAI('description') }}",
+            "date": "={{ $fromAI('date') }}"
+          }
+        }
+      },
+
+      "salvar_receita": {
+        "type": "n8n-nodes-base.httpRequest",
+        "description": "Salva uma receita do usuário. Use quando o usuário mencionar que recebeu, ganhou dinheiro.",
+        "parameters": {
+          "userId": "string (UUID do usuário)",
+          "amount": "number (valor em reais)",
+          "category": "string (categoria: Salário, Freelance, Investimentos, Outros)",
+          "description": "string opcional",
+          "date": "string opcional (YYYY-MM-DD)"
+        },
+        "config": {
+          "method": "POST",
+          "url": "http://app:3000/api/v1/internal/transactions",
+          "body": {
+            "userId": "={{ $fromAI('userId') }}",
+            "type": "income",
+            "amount": "={{ $fromAI('amount') }}",
+            "category": "={{ $fromAI('category') }}"
+          }
+        }
+      },
+
+      "criar_lembrete": {
+        "type": "n8n-nodes-base.httpRequest",
+        "description": "Cria um lembrete para o usuário. Use quando mencionar querer ser lembrado de algo.",
+        "parameters": {
+          "userId": "string (UUID do usuário)",
+          "title": "string (título do lembrete)",
+          "scheduledAt": "string (ISO 8601: 2024-03-15T09:00:00.000Z)",
+          "message": "string opcional (mensagem adicional)",
+          "recurrence": "string: once | daily | weekly | monthly"
+        },
+        "config": {
+          "method": "POST",
+          "url": "http://app:3000/api/v1/internal/reminders"
+        }
+      },
+
+      "consultar_saldo": {
+        "type": "n8n-nodes-base.httpRequest",
+        "description": "Consulta o resumo financeiro do mês atual do usuário.",
+        "parameters": {
+          "userId": "string (UUID do usuário)"
+        },
+        "config": {
+          "method": "GET",
+          "url": "http://app:3000/api/v1/internal/user-summary/{{ $fromAI('userId') }}"
+        }
+      }
+    },
+
+    "7_send_ai_response": {
+      "type": "n8n-nodes-base.httpRequest",
+      "name": "Enviar resposta da IA via WhatsApp",
+      "config": {
+        "method": "POST",
+        "url": "={{ $env.EVOLUTION_API_URL }}/message/sendText/{{ $env.EVOLUTION_INSTANCE }}",
+        "headers": {
+          "apikey": "={{ $env.EVOLUTION_API_KEY }}"
+        },
+        "body": {
+          "number": "={{ $('Extrair telefone e mensagem').item.json.phone }}",
+          "text": "={{ $('Agente IA').item.json.output }}"
+        }
+      }
+    }
+  },
+
+  "environment_variables_needed": {
+    "N8N_BACKEND_SECRET": "Mesmo valor que N8N_INTERNAL_SECRET no .env do backend",
+    "EVOLUTION_API_URL": "URL da Evolution API (ex: http://evolution:8080)",
+    "EVOLUTION_API_KEY": "API Key da Evolution API",
+    "EVOLUTION_INSTANCE": "Nome da instância WhatsApp na Evolution API",
+    "OPENAI_API_KEY": "Chave da OpenAI para o agente IA (ou outro provider)"
+  },
+
+  "redis_memory_config": {
+    "notes": [
+      "Configurar credencial Redis no n8n apontando para o mesmo Redis da VPS",
+      "A memória é por usuário (sessionKey = 'wa_' + userId)",
+      "TTL de 3600s (1h) — usuário sem mensagens perde contexto da conversa",
+      "Aumentar TTL se quiser memória mais longa"
+    ]
+  },
+
+  "security_notes": [
+    "O N8N_BACKEND_SECRET nunca deve aparecer em logs do n8n",
+    "Usar variáveis de ambiente do n8n, não valores hardcoded nos nós",
+    "O backend valida o userId em TODA persistência — nunca confiar só no n8n",
+    "O n8n NÃO deve ter acesso direto ao banco PostgreSQL",
+    "Toda escrita passa pelo backend via HTTP"
+  ]
+}

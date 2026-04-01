@@ -18,26 +18,7 @@ RUN rm /etc/nginx/conf.d/default.conf
 # Config para React Router (todas as rotas → index.html)
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-RUN cat > /etc/nginx/conf.d/app.conf << 'NGINX'
-server {
-    listen 80;
-    server_name _;
-    root /usr/share/nginx/html;
-    index index.html;
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    location ~* \.(js|css|png|jpg|ico|woff2|svg)$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
-
-    gzip on;
-    gzip_types text/plain text/css application/json application/javascript;
-}
-NGINX
+COPY nginx.conf /etc/nginx/conf.d/app.conf
 
 EXPOSE 80
 

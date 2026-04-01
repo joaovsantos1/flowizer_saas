@@ -1,18 +1,18 @@
-import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-import { config } from '../config/index.js';
-import { db } from '../config/database.js';
-import { logSecurity, logAccess } from '../utils/logger.js';
+import { Request, Response, NextFunction } from "express";
+import jwt from "jsonwebtoken";
+import { config } from "../config/index";
+import { db } from "../config/database";
+import { logSecurity, logAccess } from "../utils/logger.js";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
 export interface JWTPayload {
-  sub: string;       // user_id
-  role: 'user' | 'admin';
+  sub: string; // user_id
+  role: "user" | "admin";
   subscriptionStatus: string;
   iat: number;
   exp: number;
-  jti: string;       // JWT ID único — para revogação
+  jti: string; // JWT ID único — para revogação
 }
 
 // Extende o tipo de Request do Express
@@ -34,19 +34,19 @@ const revokedTokens = new Set<string>();
 export async function authenticate(
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> {
   req.startTime = Date.now();
 
-  const authHeader = req.headers['authorization'];
+  const authHeader = req.headers["authorization"];
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
     logSecurity({
-      event: 'auth_missing_token',
+      event: "auth_missing_token",
       ip: req.ip,
-      severity: 'low',
+      severity: "low",
     });
-    res.status(401).json({ error: 'Token de autenticação não fornecido' });
+    res.status(401).json({ error: "Token de autenticação não fornecido" });
     return;
   }
 
@@ -59,39 +59,39 @@ export async function authenticate(
     if (revokedTokens.has(payload.jti)) {
       logSecurity({
         userId: payload.sub,
-        event: 'auth_revoked_token',
+        event: "auth_revoked_token",
         ip: req.ip,
-        severity: 'high',
+        severity: "high",
       });
-      res.status(401).json({ error: 'Token revogado' });
+      res.status(401).json({ error: "Token revogado" });
       return;
     }
 
     // Verificar se usuário ainda existe e está ativo
-    const user = await db('users')
-      .select('id', 'status', 'subscription_status', 'role')
+    const user = await db("users")
+      .select("id", "status", "subscription_status", "role")
       .where({ id: payload.sub, deleted_at: null })
       .first();
 
     if (!user) {
       logSecurity({
         userId: payload.sub,
-        event: 'auth_user_not_found',
+        event: "auth_user_not_found",
         ip: req.ip,
-        severity: 'medium',
+        severity: "medium",
       });
-      res.status(401).json({ error: 'Usuário não encontrado' });
+      res.status(401).json({ error: "Usuário não encontrado" });
       return;
     }
 
-    if (user.status === 'suspended') {
+    if (user.status === "suspended") {
       logSecurity({
         userId: payload.sub,
-        event: 'auth_suspended_user',
+        event: "auth_suspended_user",
         ip: req.ip,
-        severity: 'medium',
+        severity: "medium",
       });
-      res.status(403).json({ error: 'Conta suspensa' });
+      res.status(403).json({ error: "Conta suspensa" });
       return;
     }
 
@@ -105,16 +105,16 @@ export async function authenticate(
     next();
   } catch (error) {
     if (error instanceof jwt.TokenExpiredError) {
-      res.status(401).json({ error: 'Token expirado', code: 'TOKEN_EXPIRED' });
+      res.status(401).json({ error: "Token expirado", code: "TOKEN_EXPIRED" });
       return;
     }
     if (error instanceof jwt.JsonWebTokenError) {
       logSecurity({
-        event: 'auth_invalid_token',
+        event: "auth_invalid_token",
         ip: req.ip,
-        severity: 'medium',
+        severity: "medium",
       });
-      res.status(401).json({ error: 'Token inválido' });
+      res.status(401).json({ error: "Token inválido" });
       return;
     }
     next(error);
@@ -126,24 +126,24 @@ export async function authenticate(
 export function requireActiveSubscription(
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): void {
   if (!req.user) {
-    res.status(401).json({ error: 'Não autenticado' });
+    res.status(401).json({ error: "Não autenticado" });
     return;
   }
 
-  const allowedStatuses = ['trialing', 'active'];
+  const allowedStatuses = ["trialing", "active"];
   if (!allowedStatuses.includes(req.user.subscriptionStatus)) {
     logAccess({
       userId: req.user.sub,
-      action: 'subscription_blocked',
+      action: "subscription_blocked",
       path: req.path,
       statusCode: 402,
     });
     res.status(402).json({
-      error: 'Assinatura inativa',
-      code: 'SUBSCRIPTION_REQUIRED',
+      error: "Assinatura inativa",
+      code: "SUBSCRIPTION_REQUIRED",
       subscriptionStatus: req.user.subscriptionStatus,
     });
     return;
@@ -154,21 +154,21 @@ export function requireActiveSubscription(
 
 // ─── Middleware de role ───────────────────────────────────────────────────────
 
-export function requireRole(role: 'admin' | 'user') {
+export function requireRole(role: "admin" | "user") {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
-      res.status(401).json({ error: 'Não autenticado' });
+      res.status(401).json({ error: "Não autenticado" });
       return;
     }
 
-    if (role === 'admin' && req.user.role !== 'admin') {
+    if (role === "admin" && req.user.role !== "admin") {
       logSecurity({
         userId: req.user.sub,
-        event: 'auth_insufficient_permissions',
+        event: "auth_insufficient_permissions",
         ip: req.ip,
-        severity: 'medium',
+        severity: "medium",
       });
-      res.status(403).json({ error: 'Permissão insuficiente' });
+      res.status(403).json({ error: "Permissão insuficiente" });
       return;
     }
 
@@ -178,24 +178,24 @@ export function requireRole(role: 'admin' | 'user') {
 
 // ─── Geração de tokens ────────────────────────────────────────────────────────
 
-import crypto from 'crypto';
+import crypto from "crypto";
 
 export function generateAccessToken(user: {
   id: string;
-  role: 'user' | 'admin';
+  role: "user" | "admin";
   subscription_status: string;
 }): string {
-  const payload: Omit<JWTPayload, 'iat' | 'exp'> = {
+  const payload = {
     sub: user.id,
     role: user.role,
     subscriptionStatus: user.subscription_status,
     jti: crypto.randomUUID(),
   };
 
-  return jwt.sign(payload, config.JWT_SECRET, {
-    expiresIn: config.JWT_EXPIRES_IN,
-    issuer: 'whatsapp-saas',
-    audience: 'whatsapp-saas-client',
+  return jwt.sign(payload, config.JWT_SECRET as jwt.Secret, {
+    expiresIn: config.JWT_EXPIRES_IN as jwt.SignOptions["expiresIn"],
+    issuer: "whatsapp-saas",
+    audience: "whatsapp-saas-client",
   });
 }
 
@@ -204,8 +204,8 @@ export function generateRefreshToken(): {
   hash: string;
   family: string;
 } {
-  const token = crypto.randomBytes(48).toString('hex');
-  const hash = crypto.createHash('sha256').update(token).digest('hex');
+  const token = crypto.randomBytes(48).toString("hex");
+  const hash = crypto.createHash("sha256").update(token).digest("hex");
   const family = crypto.randomUUID();
   return { token, hash, family };
 }

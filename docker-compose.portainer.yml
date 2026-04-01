@@ -71,5 +71,5 @@ volumes:
   backend_logs:
 
 networks:
-  financebot-net:
+  flowizer-net:
     driver: overlay

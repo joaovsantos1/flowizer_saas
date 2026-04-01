@@ -55,7 +55,7 @@ services:
       - flowizer-net
 
   frontend:
-    image: ghcr.io/joaovsantos1/flowizer-frontend:lastest
+    image: ghcr.io/joaovsantos1/flowizer-frontend:latest
     deploy:
       replicas: 1
       restart_policy:

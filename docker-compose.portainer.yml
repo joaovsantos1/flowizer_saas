@@ -72,4 +72,4 @@ volumes:
 
 networks:
   flowizer-net:
-    driver: overlay
+    external: true

@@ -7,8 +7,29 @@ services:
       replicas: 1
       restart_policy:
         condition: on-failure
-    ports:
-      - "3000:3000"
+        delay: 10s
+        max_attempts: 3
+      labels:
+        # Em Swarm as labels do Traefik ficam AQUI dentro de deploy.labels
+        - "traefik.enable=true"
+        - "traefik.docker.network=admin_net"
+
+        # Roteamento HTTP → redireciona para HTTPS
+        - "traefik.http.routers.flowizer-api-http.rule=Host(`api.jves.tech`)"
+        - "traefik.http.routers.flowizer-api-http.entrypoints=web"
+        - "traefik.http.routers.flowizer-api-http.middlewares=redirect-https"
+
+        # Roteamento HTTPS
+        - "traefik.http.routers.flowizer-api.rule=Host(`api.jves.tech`)"
+        - "traefik.http.routers.flowizer-api.entrypoints=websecure"
+        - "traefik.http.routers.flowizer-api.tls=true"
+        - "traefik.http.routers.flowizer-api.tls.certresolver=letsencrypt"
+
+        # Porta interna do container
+        - "traefik.http.services.flowizer-api.loadbalancer.server.port=3000"
+
+        # Middleware global de redirect (provavelmente já existe, se não adicionar)
+        - "traefik.http.middlewares.redirect-https.redirectscheme.scheme=https"
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: 3000
@@ -53,6 +74,7 @@ services:
       - backend_logs:/app/logs
     networks:
       - flowizer-net
+      - admin_net
 
   frontend:
     image: ghcr.io/joaovsantos1/flowizer-frontend:latest
@@ -60,10 +82,27 @@ services:
       replicas: 1
       restart_policy:
         condition: on-failure
-    ports:
-      - "8080:80"
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=admin_net"
+
+        # HTTP → HTTPS
+        - "traefik.http.routers.financebot-app-http.rule=Host(`jves.tech`) || Host(`www.jves.tech`)"
+        - "traefik.http.routers.financebot-app-http.entrypoints=web"
+        - "traefik.http.routers.financebot-app-http.middlewares=redirect-https"
+
+        # HTTPS
+        - "traefik.http.routers.financebot-app.rule=Host(`jves.tech`) || Host(`www.jves.tech`)"
+        - "traefik.http.routers.financebot-app.entrypoints=websecure"
+        - "traefik.http.routers.financebot-app.tls=true"
+        - "traefik.http.routers.financebot-app.tls.certresolver=letsencrypt"
+
+        # Porta interna nginx do frontend
+        - "traefik.http.services.financebot-app.loadbalancer.server.port=80"
+
     networks:
       - flowizer-net
+      - admin_net
     depends_on:
       - backend
 
@@ -72,4 +111,6 @@ volumes:
 
 networks:
   flowizer-net:
+    external: true
+  admin_net:
     external: true

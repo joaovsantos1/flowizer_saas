@@ -26,7 +26,12 @@ jobs:
 
       # 🧱 Build Frontend
       - name: Build frontend
-        run: docker build -t ghcr.io/${{ github.actor }}/flowizer-frontend:latest ./frontend
+        run: |
+          docker build \
+            --build-arg VITE_API_URL=${{ secrets.VITE_API_URL }} \
+            --build-arg VITE_WA_BOT_NUMBER=${{ secrets.WA_BOT_NUMBER }} \
+            -t ghcr.io/${{ github.actor }}/flowizer-frontend:latest \
+            ./frontend
 
       # 🚀 Push Backend
       - name: Push backend
@@ -44,5 +49,5 @@ jobs:
           username: root
           password: ${{ secrets.VPS_PASSWORD }}
           script: |
-            docker service update --force flowizer_backend
-            docker service update --force flowizer_frontend
+            docker service update --image ghcr.io/joaovsantos1/flowizer-backend:latest --force flowizer_backend
+            docker service update --image ghcr.io/joaovsantos1/flowizer-frontend:latest --force flowizer_frontend
